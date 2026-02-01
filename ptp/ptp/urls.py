@@ -16,8 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from server.oidc import SafeOIDCCallbackView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('server.urls')),
+    path('oidc/callback/', SafeOIDCCallbackView.as_view(), name='oidc_authentication_callback'),
+    path('oidc/', include('mozilla_django_oidc.urls')),
 ]

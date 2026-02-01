@@ -3,29 +3,20 @@
     <header class="header">
       <h1 class="title">Закрытая карта PTP</h1>
       <div class="auth">
-        <template v-if="isLoggedIn">
-          <span class="user">{{ username }}</span>
-          <button type="button" class="btn btn-outline" @click="logout">Выйти</button>
+        <template v-if="user && user.is_authenticated">
+          <span class="user">{{ user.display_name || user.username }}</span>
+          <form action="/oidc/logout/" method="POST" class="logout-form">
+            <input type="hidden" name="csrfmiddlewaretoken" :value="csrfToken">
+            <button type="submit" class="btn btn-outline">Выйти</button>
+          </form>
         </template>
         <template v-else>
-          <input
-            v-model="loginUsername"
-            type="text"
-            placeholder="Логин"
-            class="input"
-          >
-          <input
-            v-model="loginPassword"
-            type="password"
-            placeholder="Пароль"
-            class="input"
-          >
-          <button type="button" class="btn btn-primary" @click="login">Войти</button>
+          <a href="/oidc/authenticate/" class="btn btn-primary">Войти</a>
         </template>
       </div>
     </header>
 
-    <div v-if="!isLoggedIn" class="login-prompt">
+    <div v-if="!user || !user.is_authenticated" class="login-prompt">
       <p>Войдите, чтобы работать с картой и зонами.</p>
     </div>
     <div v-else class="layout">
@@ -81,8 +72,8 @@ import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
 import 'ol/ol.css'
 
-const AUTH_KEY = 'ptp_map_user'
 const API_ZONES = '/api/zones/'
+const API_AUTH_USER = '/api/auth/user/'
 
 function getCsrfToken() {
   const name = 'csrftoken'
@@ -113,28 +104,28 @@ export default {
     return {
       map: null,
       zonesVectorSource: null,
-      isLoggedIn: false,
-      username: '',
-      loginUsername: '',
-      loginPassword: '',
+      user: null,
       pointsText: '',
       zoneDate: new Date().toISOString().slice(0, 10),
       zones: []
     }
   },
   computed: {
+    csrfToken() {
+      const match = document.cookie.match(/csrftoken=([^;]+)/)
+      return match ? match[1] : ''
+    },
     canSaveZone() {
       const points = parsePoints(this.pointsText)
       return points.length >= 2 && this.zoneDate
     }
   },
   mounted() {
-    const user = localStorage.getItem(AUTH_KEY)
-    if (user) {
-      this.isLoggedIn = true
-      this.username = user
-      this.fetchZones()
-    }
+    this.fetchUser().then(() => {
+      if (this.user && this.user.is_authenticated) {
+        this.fetchZones()
+      }
+    })
     this.$nextTick(() => this.initMap())
   },
   beforeUnmount() {
@@ -178,20 +169,13 @@ export default {
         }
       }
     },
-    login() {
-      const u = (this.loginUsername || '').trim()
-      if (u) {
-        this.isLoggedIn = true
-        this.username = u
-        localStorage.setItem(AUTH_KEY, u)
-        this.loginUsername = ''
-        this.loginPassword = ''
+    async fetchUser() {
+      try {
+        const r = await fetch(API_AUTH_USER, { credentials: 'same-origin' })
+        this.user = await r.json()
+      } catch (_) {
+        this.user = { is_authenticated: false }
       }
-    },
-    logout() {
-      this.isLoggedIn = false
-      this.username = ''
-      localStorage.removeItem(AUTH_KEY)
     },
     async fetchZones() {
       try {
@@ -285,6 +269,15 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.auth .logout-form {
+  display: inline;
+}
+
+.auth a.btn {
+  text-decoration: none;
+  display: inline-block;
 }
 
 .auth .input {

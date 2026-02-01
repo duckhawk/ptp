@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'drf_spectacular',
+    'mozilla_django_oidc',
     'django_celery_beat',
     'server',
 ]
@@ -51,6 +52,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'mozilla_django_oidc.middleware.SessionRefresh',
 ]
 
 ROOT_URLCONF = 'ptp.urls'
@@ -122,10 +124,75 @@ STATIC_ROOT = BASE_DIR / 'static'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'server.oidc.KeycloakOIDCAuthenticationBackend',
+]
+
+# OIDC / Keycloak settings (imported from private_settings)
+try:
+    from ptp.private_settings import (
+        OIDC_RP_CLIENT_ID,
+        OIDC_RP_CLIENT_SECRET,
+        OIDC_OP_AUTHORIZATION_ENDPOINT,
+        OIDC_OP_TOKEN_ENDPOINT,
+        OIDC_OP_USER_ENDPOINT,
+        OIDC_OP_JWKS_ENDPOINT,
+    )
+except ImportError:
+    OIDC_RP_CLIENT_ID = ''
+    OIDC_RP_CLIENT_SECRET = ''
+    OIDC_OP_AUTHORIZATION_ENDPOINT = ''
+    OIDC_OP_TOKEN_ENDPOINT = ''
+    OIDC_OP_USER_ENDPOINT = ''
+    OIDC_OP_JWKS_ENDPOINT = ''
+
+try:
+    from ptp.private_settings import OIDC_RP_REDIRECT_URI
+except ImportError:
+    OIDC_RP_REDIRECT_URI = None
+
+OIDC_RP_SIGN_ALGO = 'RS256'
+OIDC_RP_SCOPES = 'openid email profile'
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/'
+OIDC_CREATE_USER = True
+OIDC_USERNAME_ALGO = 'server.oidc.generate_username'
+OIDC_CALLBACK_CLASS = 'mozilla_django_oidc.views.OIDCAuthenticationCallbackView'
+OIDC_STORE_ACCESS_TOKEN = True
+OIDC_STORE_ID_TOKEN = True
+
+import re
+OIDC_EXEMPT_URLS = [re.compile(r'^/api/')]
+
+# Session and CSRF for reverse proxy / HTTPS
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+try:
+    from ptp.private_settings import SESSION_COOKIE_SECURE
+except ImportError:
+    SESSION_COOKIE_SECURE = True
+try:
+    from ptp.private_settings import CSRF_COOKIE_SECURE
+except ImportError:
+    CSRF_COOKIE_SECURE = True
+try:
+    from ptp.private_settings import CSRF_TRUSTED_ORIGINS
+except ImportError:
+    CSRF_TRUSTED_ORIGINS = []
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
 
 # OpenAPI Schema Configuration
