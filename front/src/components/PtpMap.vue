@@ -67,8 +67,19 @@
 </template>
 
 <script>
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import Map from 'ol/Map'
+import View from 'ol/View'
+import TileLayer from 'ol/layer/Tile'
+import OSM from 'ol/source/OSM'
+import VectorLayer from 'ol/layer/Vector'
+import VectorSource from 'ol/source/Vector'
+import Feature from 'ol/Feature'
+import Polygon from 'ol/geom/Polygon'
+import { fromLonLat } from 'ol/proj'
+import Style from 'ol/style/Style'
+import Fill from 'ol/style/Fill'
+import Stroke from 'ol/style/Stroke'
+import 'ol/ol.css'
 
 const AUTH_KEY = 'ptp_map_user'
 const API_ZONES = '/api/zones/'
@@ -101,7 +112,7 @@ export default {
   data() {
     return {
       map: null,
-      layerGroup: null,
+      zonesVectorSource: null,
       isLoggedIn: false,
       username: '',
       loginUsername: '',
@@ -128,28 +139,42 @@ export default {
   },
   beforeUnmount() {
     if (this.map) {
-      this.map.remove()
+      this.map.setTarget(undefined)
       this.map = null
     }
   },
   methods: {
     initMap() {
       if (!this.$refs.mapContainer) return
-      this.map = L.map(this.$refs.mapContainer).setView([55.7558, 37.6173], 10)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-      }).addTo(this.map)
-      this.layerGroup = L.layerGroup().addTo(this.map)
+      this.zonesVectorSource = new VectorSource()
+      const osmLayer = new TileLayer({ source: new OSM() })
+      const zonesLayer = new VectorLayer({
+        source: this.zonesVectorSource,
+        style: new Style({
+          fill: new Fill({ color: 'rgba(33, 150, 243, 0.2)' }),
+          stroke: new Stroke({ color: '#2196F3', width: 2 })
+        })
+      })
+      this.map = new Map({
+        target: this.$refs.mapContainer,
+        layers: [osmLayer, zonesLayer],
+        view: new View({
+          center: fromLonLat([37.6173, 55.7558]),
+          zoom: 10
+        })
+      })
       this.drawZones()
     },
     drawZones() {
-      if (!this.layerGroup) return
-      this.layerGroup.clearLayers()
+      if (!this.zonesVectorSource) return
+      this.zonesVectorSource.clear()
       for (const zone of this.zones) {
         if (zone.points && zone.points.length >= 2) {
-          const poly = L.polygon(zone.points, { color: '#2196F3', fillColor: '#2196F3', fillOpacity: 0.2 })
-          poly.bindPopup(`Зона, дата: ${zone.date || '—'}`)
-          this.layerGroup.addLayer(poly)
+          const coords = zone.points.map(([lat, lng]) => fromLonLat([lng, lat]))
+          coords.push(coords[0].slice())
+          const feature = new Feature(new Polygon([coords]))
+          feature.set('zoneDate', zone.date || '—')
+          this.zonesVectorSource.addFeature(feature)
         }
       }
     },
