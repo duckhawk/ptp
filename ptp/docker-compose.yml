@@ -1,0 +1,69 @@
+version: "3"
+
+services:
+  ptp:
+    build:
+      context: ..
+      dockerfile: ptp/Dockerfile
+    command: /ptp/init.sh
+    working_dir: /ptp
+    expose:
+      - 9100
+    networks:
+      - ptp
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - 6379
+    networks:
+      - ptp
+    volumes:
+      - redis_data:/data
+
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: ptp/Dockerfile
+    command: /ptp/.pyenv/versions/ptp/bin/celery -A ptp worker -l INFO
+    working_dir: /ptp
+    networks:
+      - ptp
+    depends_on:
+      - redis
+      - ptp
+
+  celery_beat:
+    build:
+      context: ..
+      dockerfile: ptp/Dockerfile
+    command: /ptp/.pyenv/versions/ptp/bin/celery -A ptp beat -l INFO
+    working_dir: /ptp
+    networks:
+      - ptp
+    depends_on:
+      - redis
+      - ptp
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: ptp/Dockerfile
+    ports:
+      - 8081:8081
+    command: /usr/sbin/nginx -g 'daemon off;'
+    networks:
+      - ptp
+    depends_on:
+      - ptp
+
+networks:
+  ptp:
+    driver: bridge
+
+volumes:
+    postgres: { }
+    pgadmin: { }
+    redis_data: { }
