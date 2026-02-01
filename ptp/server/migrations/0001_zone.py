@@ -1,13 +1,13 @@
-# Generated manually for Zone model
+# Initial migration: Zone model
 
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
 
-    dependencies = [
-        ('server', '0002_remove_all_models'),
-    ]
+    initial = True
+
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
