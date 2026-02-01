@@ -1,31 +1,22 @@
 <template>
   <div class="hello">
+    <h1>Hello World</h1>
   </div>
 </template>
 
 <script>
 export default {
-  name: 'HelloWorld',
-  props: {
-    msg: String
-  }
+  name: 'HelloWorld'
 }
 </script>
 
-<!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
-h3 {
-  margin: 40px 0 0;
+.hello {
+  text-align: center;
+  padding: 2rem;
 }
-ul {
-  list-style-type: none;
-  padding: 0;
-}
-li {
-  display: inline-block;
-  margin: 0 10px;
-}
-a {
+h1 {
+  font-size: 2rem;
   color: #42b983;
 }
 </style>
