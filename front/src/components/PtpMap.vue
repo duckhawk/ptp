@@ -3,7 +3,11 @@
     <header class="header">
       <h1 class="title">Закрытая карта PTP</h1>
       <div class="auth">
-        <template v-if="user && user.is_authenticated">
+        <!-- OIDC: состояние берётся из /api/auth/user/, вход через Keycloak -->
+        <template v-if="user === null">
+          <span class="auth-loading">Загрузка…</span>
+        </template>
+        <template v-else-if="user && user.is_authenticated">
           <span class="user">{{ user.display_name || user.username }}</span>
           <form action="/oidc/logout/" method="POST" class="logout-form">
             <input type="hidden" name="csrfmiddlewaretoken" :value="csrfToken">
@@ -11,13 +15,16 @@
           </form>
         </template>
         <template v-else>
-          <a href="/oidc/authenticate/" class="btn btn-primary">Войти</a>
+          <a href="/oidc/authenticate/" class="btn btn-primary">Войти (OIDC)</a>
         </template>
       </div>
     </header>
 
-    <div v-if="!user || !user.is_authenticated" class="login-prompt">
-      <p>Войдите, чтобы работать с картой и зонами.</p>
+    <div v-if="user === null" class="login-prompt">
+      <p>Проверка авторизации…</p>
+    </div>
+    <div v-else-if="!user.is_authenticated" class="login-prompt">
+      <p>Войдите через OIDC (Keycloak), чтобы работать с картой и зонами.</p>
     </div>
     <div v-else class="layout">
       <aside class="panel">
@@ -121,6 +128,7 @@ export default {
     }
   },
   mounted() {
+    // OIDC: получаем текущего пользователя из сессии Django (после /oidc/callback/)
     this.fetchUser().then(() => {
       if (this.user && this.user.is_authenticated) {
         this.fetchZones()
@@ -172,7 +180,8 @@ export default {
     async fetchUser() {
       try {
         const r = await fetch(API_AUTH_USER, { credentials: 'same-origin' })
-        this.user = await r.json()
+        const data = await r.json()
+        this.user = data
       } catch (_) {
         this.user = { is_authenticated: false }
       }
@@ -344,6 +353,11 @@ export default {
 .user {
   margin-right: 8px;
   font-size: 14px;
+}
+
+.auth-loading {
+  font-size: 14px;
+  color: #888;
 }
 
 .layout {
