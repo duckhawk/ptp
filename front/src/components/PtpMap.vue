@@ -31,14 +31,15 @@
         <div class="panel-header">
           <button
             type="button"
-            class="btn btn-icon"
-            title="Скрыть меню"
-            aria-label="Скрыть меню"
-            @click="panelVisible = false"
+            class="btn btn-icon panel-toggle"
+            :title="panelVisible ? 'Скрыть меню' : 'Показать меню'"
+            :aria-label="panelVisible ? 'Скрыть меню' : 'Показать меню'"
+            @click="panelVisible = !panelVisible"
           >
-            ‹
+            {{ panelVisible ? '‹' : '›' }}
           </button>
         </div>
+        <div class="panel-content">
         <section class="section section-zones">
           <h3>Существующие зоны</h3>
           <ul v-if="zones.length > 0" class="zones-list">
@@ -96,19 +97,10 @@
         >
           Экспорт в Excel (CSV)
         </button>
+        </div>
       </aside>
       <div class="map-container">
         <div ref="mapContainer" class="map-container-inner"></div>
-        <button
-          v-show="!panelVisible"
-          type="button"
-          class="btn btn-icon panel-show-btn"
-          title="Показать меню"
-          aria-label="Показать меню"
-          @click="panelVisible = true"
-        >
-          ›
-        </button>
       </div>
     </div>
   </div>
@@ -566,11 +558,24 @@ export default {
 }
 
 .layout-panel-hidden .panel {
-  width: 0;
-  min-width: 0;
-  padding: 0;
+  width: 48px;
+  min-width: 48px;
+  padding: 8px;
+}
+
+.layout-panel-hidden .panel-header {
+  justify-content: center;
+  margin: 0;
+}
+
+.layout-panel-hidden .panel-content {
   overflow: hidden;
-  border-right-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 0;
+  height: 0;
+  clip: rect(0, 0, 0, 0);
 }
 
 .panel {
@@ -578,7 +583,7 @@ export default {
   padding: 16px;
   background: #252525;
   border-right: 1px solid #333;
-  overflow-y: auto;
+  overflow: hidden;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -590,6 +595,19 @@ export default {
   display: flex;
   justify-content: flex-end;
   margin: -8px -8px 12px 0;
+  flex-shrink: 0;
+}
+
+.panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 0.2s ease;
+}
+
+.panel-toggle {
   flex-shrink: 0;
 }
 
@@ -612,17 +630,6 @@ export default {
   inset: 0;
   width: 100%;
   height: 100%;
-}
-
-.panel-show-btn {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1000;
-  border-radius: 0 6px 6px 0;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
-  pointer-events: auto;
 }
 
 .section h3 {
