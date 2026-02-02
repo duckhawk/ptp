@@ -15,7 +15,7 @@
           </form>
         </template>
         <template v-else>
-          <a href="/oidc/authenticate/" class="btn btn-primary">Войти (OIDC)</a>
+          <a href="/oidc/authenticate/" class="btn btn-primary">Войти</a>
         </template>
       </div>
     </header>
@@ -24,10 +24,21 @@
       <p>Проверка авторизации…</p>
     </div>
     <div v-else-if="!user.is_authenticated" class="login-prompt">
-      <p>Войдите через OIDC (Keycloak), чтобы работать с картой и зонами.</p>
+      <p>Войдите чтобы работать с картой и зонами.</p>
     </div>
-    <div v-else class="layout">
+    <div v-else class="layout" :class="{ 'layout-panel-hidden': !panelVisible }">
       <aside class="panel">
+        <div class="panel-header">
+          <button
+            type="button"
+            class="btn btn-icon"
+            title="Скрыть меню"
+            aria-label="Скрыть меню"
+            @click="panelVisible = false"
+          >
+            ‹
+          </button>
+        </div>
         <section class="section section-zones">
           <h3>Существующие зоны</h3>
           <ul v-if="zones.length > 0" class="zones-list">
@@ -86,6 +97,16 @@
           Экспорт в Excel (CSV)
         </button>
       </aside>
+      <button
+        v-show="!panelVisible"
+        type="button"
+        class="btn btn-icon panel-show-btn"
+        title="Показать меню"
+        aria-label="Показать меню"
+        @click="panelVisible = true"
+      >
+        ›
+      </button>
       <div ref="mapContainer" class="map-container"></div>
     </div>
   </div>
@@ -143,7 +164,8 @@ export default {
       user: null,
       pointsText: '',
       zoneDate: new Date().toISOString().slice(0, 10),
-      zones: []
+      zones: [],
+      panelVisible: true
     }
   },
   computed: {
@@ -356,6 +378,9 @@ export default {
     },
     pointsText() {
       this.drawDraft()
+    },
+    panelVisible() {
+      this.$nextTick(() => this.map?.updateSize())
     }
   }
 }
@@ -535,6 +560,15 @@ export default {
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.layout-panel-hidden .panel {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right-width: 0;
 }
 
 .panel {
@@ -547,6 +581,31 @@ export default {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: width 0.2s ease, padding 0.2s ease, min-width 0.2s ease;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px -8px 12px 0;
+  flex-shrink: 0;
+}
+
+.btn-icon {
+  padding: 6px 10px;
+  font-size: 18px;
+  line-height: 1.2;
+  min-width: 36px;
+}
+
+.panel-show-btn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  border-radius: 0 6px 6px 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
 }
 
 .section h3 {
