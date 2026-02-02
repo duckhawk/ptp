@@ -32,6 +32,18 @@ def current_user(request):
 
 @method_decorator(ensure_csrf_cookie, name='list')
 class ZoneViewSet(viewsets.ModelViewSet):
-    queryset = Zone.objects.all()
+    queryset = Zone.objects.select_related('creator').all()
     serializer_class = ZoneSerializer
     permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(creator=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        zone = self.get_object()
+        if zone.creator_id != request.user.id and not request.user.is_staff:
+            return Response(
+                {'detail': 'Удалять зону может только создатель или администратор.'},
+                status=403
+            )
+        return super().destroy(request, *args, **kwargs)

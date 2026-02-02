@@ -29,8 +29,29 @@
     <div v-else class="layout">
       <aside class="panel">
         <section class="section">
+          <h3>Существующие зоны</h3>
+          <ul v-if="zones.length > 0" class="zones-list">
+            <li v-for="zone in zones" :key="zone.id" class="zone-item">
+              <span class="zone-info">
+                <strong>#{{ zone.id }}</strong> — {{ zone.date || '—' }}, {{ (zone.points || []).length }} точек
+                <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
+              </span>
+              <button
+                v-if="canDeleteZone(zone)"
+                type="button"
+                class="btn btn-small btn-outline"
+                title="Удалить зону"
+                @click="deleteZone(zone)"
+              >
+                ×
+              </button>
+            </li>
+          </ul>
+          <p v-else class="zones-empty">Зон пока нет.</p>
+        </section>
+        <section class="section">
           <h3>Добавить зону (ввод точек построчно)</h3>
-          <p class="hint">Одна точка на строку: широта пробел долгота, например: 55.7558 37.6173</p>
+          <p class="hint">Клик по карте добавляет точку в поле ниже. Или вводите вручную: одна точка на строку — широта пробел долгота (например: 55.7558 37.6173).</p>
           <textarea
             v-model="pointsText"
             class="textarea"
@@ -73,10 +94,12 @@ import VectorLayer from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
 import Feature from 'ol/Feature'
 import Polygon from 'ol/geom/Polygon'
-import { fromLonLat } from 'ol/proj'
+import Point from 'ol/geom/Point'
+import { fromLonLat, toLonLat } from 'ol/proj'
 import Style from 'ol/style/Style'
 import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
+import Circle from 'ol/style/Circle'
 import 'ol/ol.css'
 
 const API_ZONES = '/api/zones/'
@@ -144,9 +167,14 @@ export default {
     }
   },
   methods: {
+    canDeleteZone(zone) {
+      if (!this.user || !this.user.is_authenticated) return false
+      return this.user.id === zone.creator_id || this.user.is_staff
+    },
     initMap() {
       if (!this.$refs.mapContainer) return
       this.zonesVectorSource = new VectorSource()
+      this.draftVectorSource = new VectorSource()
       const osmLayer = new TileLayer({ source: new OSM() })
       const zonesLayer = new VectorLayer({
         source: this.zonesVectorSource,
@@ -155,15 +183,59 @@ export default {
           stroke: new Stroke({ color: '#2196F3', width: 2 })
         })
       })
+      // Черновик новой зоны — оранжевый цвет, точки и контур
+      const draftLayer = new VectorLayer({
+        source: this.draftVectorSource,
+        style: (feature) => {
+          const geom = feature.getGeometry()
+          if (geom.getType() === 'Point') {
+            return new Style({
+              image: new Circle({
+                radius: 6,
+                fill: new Fill({ color: 'rgba(255, 152, 0, 0.9)' }),
+                stroke: new Stroke({ color: '#e65100', width: 2 })
+              })
+            })
+          }
+          return new Style({
+            fill: new Fill({ color: 'rgba(255, 152, 0, 0.15)' }),
+            stroke: new Stroke({ color: '#ff9800', width: 2 })
+          })
+        }
+      })
       this.map = new Map({
         target: this.$refs.mapContainer,
-        layers: [osmLayer, zonesLayer],
+        layers: [osmLayer, zonesLayer, draftLayer],
         view: new View({
           center: fromLonLat([37.6173, 55.7558]),
           zoom: 10
         })
       })
+      this.map.on('click', (evt) => this.onMapClick(evt))
       this.drawZones()
+      this.drawDraft()
+    },
+    onMapClick(evt) {
+      const lonLat = toLonLat(evt.coordinate)
+      const lat = lonLat[1]
+      const lng = lonLat[0]
+      const line = (this.pointsText ? this.pointsText.trimEnd() + '\n' : '') + lat.toFixed(5) + ' ' + lng.toFixed(5)
+      this.pointsText = line
+    },
+    drawDraft() {
+      if (!this.draftVectorSource) return
+      this.draftVectorSource.clear()
+      const points = parsePoints(this.pointsText)
+      for (const [lat, lng] of points) {
+        this.draftVectorSource.addFeature(
+          new Feature(new Point(fromLonLat([lng, lat])))
+        )
+      }
+      if (points.length >= 2) {
+        const coords = points.map(([lat, lng]) => fromLonLat([lng, lat]))
+        coords.push(coords[0].slice())
+        this.draftVectorSource.addFeature(new Feature(new Polygon([coords])))
+      }
     },
     drawZones() {
       if (!this.zonesVectorSource) return
@@ -226,6 +298,28 @@ export default {
         alert('Ошибка сети: ' + (e.message || 'не удалось сохранить зону'))
       }
     },
+    async deleteZone(zone) {
+      if (!confirm(`Удалить зону #${zone.id} (${zone.date || '—'})?`)) return
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/`, {
+          method: 'DELETE',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          this.zones = this.zones.filter(z => z.id !== zone.id)
+          this.drawZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось удалить зону')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось удалить зону'))
+      }
+    },
     exportCsv() {
       if (this.zones.length === 0) return
       const rows = ['id;date;points']
@@ -245,6 +339,9 @@ export default {
   watch: {
     zones() {
       this.drawZones()
+    },
+    pointsText() {
+      this.drawDraft()
     }
   }
 }
@@ -349,6 +446,57 @@ export default {
 .btn-block {
   width: 100%;
   margin-top: 8px;
+}
+
+.btn-small {
+  padding: 2px 8px;
+  font-size: 18px;
+  line-height: 1.2;
+  min-width: 28px;
+}
+
+.zones-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.zone-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: #333;
+  border-radius: 4px;
+  border: 1px solid #444;
+}
+
+.zone-info {
+  font-size: 13px;
+  color: #ccc;
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-info strong {
+  color: #e0e0e0;
+}
+
+.zone-creator {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+}
+
+.zones-empty {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 16px;
 }
 
 .user {

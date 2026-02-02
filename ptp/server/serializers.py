@@ -3,10 +3,22 @@ from .models import Zone
 
 
 class ZoneSerializer(serializers.ModelSerializer):
+    creator_id = serializers.IntegerField(read_only=True)
+    creator_display_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Zone
-        fields = ['id', 'points', 'date', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'points', 'date', 'created_at', 'creator_id', 'creator_display_name']
+        read_only_fields = ['id', 'created_at', 'creator_id', 'creator_display_name']
+
+    def get_creator_display_name(self, obj):
+        if not obj.creator_id:
+            return None
+        creator = obj.creator
+        if not creator:
+            return None
+        name = f'{creator.first_name} {creator.last_name}'.strip()
+        return name or creator.username
 
     def validate_points(self, value):
         if not value or not isinstance(value, list):

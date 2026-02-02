@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -12,6 +13,14 @@ class Zone(models.Model):
         null=True,
         blank=True,
         verbose_name='Дата закладки'
+    )
+    creator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='zones',
+        verbose_name='Создатель',
+        null=True,
+        blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
