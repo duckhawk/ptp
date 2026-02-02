@@ -8,7 +8,7 @@ class ZoneSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Zone
-        fields = ['id', 'points', 'date', 'created_at', 'creator_id', 'creator_display_name']
+        fields = ['id', 'points', 'date', 'notes', 'created_at', 'creator_id', 'creator_display_name']
         read_only_fields = ['id', 'created_at', 'creator_id', 'creator_display_name']
 
     def get_creator_display_name(self, obj):

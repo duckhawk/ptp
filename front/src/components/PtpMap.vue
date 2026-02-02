@@ -29,6 +29,15 @@
     <div v-else class="layout" :class="{ 'layout-panel-hidden': !panelVisible }">
       <aside class="panel">
         <div class="panel-header">
+          <input
+            v-show="panelVisible"
+            v-model="coordSearchText"
+            type="text"
+            class="input coord-search"
+            placeholder="Широта долгота (55.7558 37.6173)"
+            title="Поиск по координатам"
+            @keyup.enter="goToCoords"
+          >
           <button
             type="button"
             class="btn btn-icon panel-toggle"
@@ -52,10 +61,11 @@
             >
               <span class="zone-info">
                 <strong>#{{ zone.id }}</strong> — {{ zone.date || '—' }}, {{ (zone.points || []).length }} точек
+                <span v-if="zone.notes" class="zone-notes">{{ zone.notes }}</span>
                 <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
               </span>
               <button
-                v-if="canDeleteZone(zone)"
+                v-if="user.is_staff"
                 type="button"
                 class="btn btn-small btn-outline"
                 title="Удалить зону"
@@ -67,7 +77,7 @@
           </ul>
           <p v-else class="zones-empty">Зон пока нет.</p>
         </section>
-        <section class="section">
+        <section v-if="user.is_staff" class="section">
           <h3>Добавить зону (ввод точек построчно)</h3>
           <p class="hint">Клик по карте добавляет точку в поле ниже. Или вводите вручную: одна точка на строку — широта пробел долгота (например: 55.7558 37.6173).</p>
           <textarea
@@ -76,6 +86,10 @@
             rows="6"
             placeholder="55.7558 37.6173&#10;55.7512 37.6185&#10;55.7520 37.6200"
           />
+          <label class="label">
+            Примечания
+            <textarea v-model="zoneNotes" class="textarea textarea-notes" rows="2" placeholder="Необязательно"></textarea>
+          </label>
           <label class="label">
             Дата закладки
             <input v-model="zoneDate" type="date" class="input">
@@ -158,8 +172,10 @@ export default {
       user: null,
       pointsText: '',
       zoneDate: new Date().toISOString().slice(0, 10),
+      zoneNotes: '',
       zones: [],
-      panelVisible: true
+      panelVisible: true,
+      coordSearchText: ''
     }
   },
   computed: {
@@ -189,9 +205,19 @@ export default {
     }
   },
   methods: {
-    canDeleteZone(zone) {
-      if (!this.user || !this.user.is_authenticated) return false
-      return this.user.id === zone.creator_id || this.user.is_staff
+    goToCoords() {
+      const text = (this.coordSearchText || '').trim().replace(/,/g, ' ')
+      const parts = text.split(/\s+/).filter(Boolean)
+      if (parts.length < 2) return
+      const lat = parseFloat(parts[0])
+      const lng = parseFloat(parts[1])
+      if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return
+      if (!this.map) return
+      this.map.getView().animate({
+        center: fromLonLat([lng, lat]),
+        zoom: 14,
+        duration: 300
+      })
     },
     focusMapOnZone(zone) {
       if (!this.map || !zone.points || zone.points.length < 2) return
@@ -311,13 +337,14 @@ export default {
         const r = await fetch(API_ZONES, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ points, date: this.zoneDate || null }),
+          body: JSON.stringify({ points, date: this.zoneDate || null, notes: (this.zoneNotes || '').trim() || null }),
           credentials: 'same-origin'
         })
         if (r.ok) {
           const zone = await r.json()
           this.zones.push(zone)
           this.pointsText = ''
+          this.zoneNotes = ''
           this.zoneDate = new Date().toISOString().slice(0, 10)
           this.drawZones()
         } else {
@@ -352,10 +379,11 @@ export default {
     },
     exportCsv() {
       if (this.zones.length === 0) return
-      const rows = ['id;date;points']
+      const rows = ['id;date;notes;points']
       for (const z of this.zones) {
         const pts = (z.points || []).map(p => `${p[0]},${p[1]}`).join(' ')
-        rows.push(`${z.id};${z.date || ''};"${pts}"`)
+        const notes = (z.notes || '').replace(/"/g, '""')
+        rows.push(`${z.id};${z.date || ''};"${notes}";"${pts}"`)
       }
       const csv = '\uFEFF' + rows.join('\n')
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -527,6 +555,18 @@ export default {
   color: #e0e0e0;
 }
 
+.zone-notes {
+  display: block;
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 2.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .zone-creator {
   display: block;
   font-size: 11px;
@@ -593,9 +633,25 @@ export default {
 
 .panel-header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin: -8px -8px 12px 0;
   flex-shrink: 0;
+}
+
+.coord-search {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #333;
+  color: #fff;
+  font-size: 13px;
+}
+
+.coord-search::placeholder {
+  color: #666;
 }
 
 .panel-content {
@@ -609,6 +665,10 @@ export default {
 
 .panel-toggle {
   flex-shrink: 0;
+}
+
+.textarea-notes {
+  min-height: 48px;
 }
 
 .btn-icon {

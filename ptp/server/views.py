@@ -4,6 +4,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from .models import Zone
 from .serializers import ZoneSerializer
 
@@ -37,13 +38,11 @@ class ZoneViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
+        if not self.request.user.is_staff:
+            raise PermissionDenied('Создавать зоны могут только администраторы и staff.')
         serializer.save(creator=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
-        zone = self.get_object()
-        if zone.creator_id != request.user.id and not request.user.is_staff:
-            return Response(
-                {'detail': 'Удалять зону может только создатель или администратор.'},
-                status=403
-            )
+        if not request.user.is_staff:
+            raise PermissionDenied('Удалять зоны могут только администраторы и staff.')
         return super().destroy(request, *args, **kwargs)

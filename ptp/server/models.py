@@ -14,6 +14,11 @@ class Zone(models.Model):
         blank=True,
         verbose_name='Дата закладки'
     )
+    notes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Примечания'
+    )
     creator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
