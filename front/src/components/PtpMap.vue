@@ -97,17 +97,19 @@
           Экспорт в Excel (CSV)
         </button>
       </aside>
-      <button
-        v-show="!panelVisible"
-        type="button"
-        class="btn btn-icon panel-show-btn"
-        title="Показать меню"
-        aria-label="Показать меню"
-        @click="panelVisible = true"
-      >
-        ›
-      </button>
-      <div ref="mapContainer" class="map-container"></div>
+      <div class="map-container">
+        <div ref="mapContainer" class="map-container-inner"></div>
+        <button
+          v-show="!panelVisible"
+          type="button"
+          class="btn btn-icon panel-show-btn"
+          title="Показать меню"
+          aria-label="Показать меню"
+          @click="panelVisible = true"
+        >
+          ›
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -598,14 +600,29 @@ export default {
   min-width: 36px;
 }
 
+.map-container {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #2d2d2d;
+}
+
+.map-container-inner {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .panel-show-btn {
   position: absolute;
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 10;
+  z-index: 1000;
   border-radius: 0 6px 6px 0;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
 }
 
 .section h3 {
@@ -659,11 +676,6 @@ export default {
   margin-top: 4px;
 }
 
-.map-container {
-  flex: 1;
-  min-width: 0;
-  background: #2d2d2d;
-}
 
 .login-prompt {
   flex: 1;
