@@ -28,10 +28,16 @@
     </div>
     <div v-else class="layout">
       <aside class="panel">
-        <section class="section">
+        <section class="section section-zones">
           <h3>Существующие зоны</h3>
           <ul v-if="zones.length > 0" class="zones-list">
-            <li v-for="zone in zones" :key="zone.id" class="zone-item">
+            <li
+              v-for="zone in zones"
+              :key="zone.id"
+              class="zone-item"
+              title="Перейти к зоне на карте"
+              @click="focusMapOnZone(zone)"
+            >
               <span class="zone-info">
                 <strong>#{{ zone.id }}</strong> — {{ zone.date || '—' }}, {{ (zone.points || []).length }} точек
                 <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
@@ -41,7 +47,7 @@
                 type="button"
                 class="btn btn-small btn-outline"
                 title="Удалить зону"
-                @click="deleteZone(zone)"
+                @click.stop="deleteZone(zone)"
               >
                 ×
               </button>
@@ -170,6 +176,14 @@ export default {
     canDeleteZone(zone) {
       if (!this.user || !this.user.is_authenticated) return false
       return this.user.id === zone.creator_id || this.user.is_staff
+    },
+    focusMapOnZone(zone) {
+      if (!this.map || !zone.points || zone.points.length < 2) return
+      const coords = zone.points.map(([lat, lng]) => fromLonLat([lng, lat]))
+      const xs = coords.map(c => c[0])
+      const ys = coords.map(c => c[1])
+      const extent = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+      this.map.getView().fit(extent, { padding: [40, 40, 40, 40], maxZoom: 15, duration: 300 })
     },
     initMap() {
       if (!this.$refs.mapContainer) return
@@ -459,8 +473,10 @@ export default {
   list-style: none;
   margin: 0 0 16px;
   padding: 0;
-  max-height: 200px;
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .zone-item {
@@ -473,6 +489,12 @@ export default {
   background: #333;
   border-radius: 4px;
   border: 1px solid #444;
+  cursor: pointer;
+}
+
+.zone-item:hover {
+  background: #3a3a3a;
+  border-color: #555;
 }
 
 .zone-info {
@@ -522,12 +544,22 @@ export default {
   border-right: 1px solid #333;
   overflow-y: auto;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .section h3 {
   font-size: 14px;
   margin: 0 0 12px;
   color: #ccc;
+}
+
+.section-zones {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
 }
 
 .hint {
