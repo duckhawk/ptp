@@ -132,9 +132,10 @@ export default {
     this.fetchUser().then(() => {
       if (this.user && this.user.is_authenticated) {
         this.fetchZones()
+        // Карта рендерится только при user.is_authenticated — инициализируем после появления контейнера в DOM
+        this.$nextTick(() => this.initMap())
       }
     })
-    this.$nextTick(() => this.initMap())
   },
   beforeUnmount() {
     if (this.map) {
