@@ -1,7 +1,7 @@
 <template>
   <div class="ptp-map">
     <header class="header">
-      <h1 class="title">Закрытая карта PTP</h1>
+      <h1 class="title">Закрытая карта ПТП</h1>
       <div class="auth">
         <!-- OIDC: состояние берётся из /api/auth/user/, вход через Keycloak -->
         <template v-if="user === null">
