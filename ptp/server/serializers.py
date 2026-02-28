@@ -8,8 +8,15 @@ class ZoneSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Zone
-        fields = ['id', 'points', 'date', 'notes', 'created_at', 'creator_id', 'creator_display_name']
-        read_only_fields = ['id', 'created_at', 'creator_id', 'creator_display_name']
+        fields = [
+            'id', 'points', 'date', 'notes', 'created_at',
+            'creator_id', 'creator_display_name',
+            'marked_for_deletion', 'delete_after',
+        ]
+        read_only_fields = [
+            'id', 'created_at', 'creator_id', 'creator_display_name',
+            'marked_for_deletion', 'delete_after',
+        ]
 
     def get_creator_display_name(self, obj):
         if not obj.creator_id:

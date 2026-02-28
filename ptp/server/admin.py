@@ -4,8 +4,8 @@ from .models import Zone
 
 @admin.register(Zone)
 class ZoneAdmin(admin.ModelAdmin):
-    list_display = ('id', 'date', 'created_at', 'points_preview')
-    list_filter = ('date', 'created_at')
+    list_display = ('id', 'date', 'marked_for_deletion', 'delete_after', 'created_at', 'points_preview')
+    list_filter = ('date', 'marked_for_deletion', 'created_at')
     readonly_fields = ('created_at',)
 
     def points_preview(self, obj):

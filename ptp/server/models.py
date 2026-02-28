@@ -29,7 +29,16 @@ class Zone(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
+    # Отложенное удаление
+    marked_for_deletion = models.BooleanField(
+        default=False,
+        verbose_name='К удалению'
+    )
+    delete_after = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name='Удалить после'
+    )
         ordering = ['-created_at']
         verbose_name = 'Зона'
         verbose_name_plural = 'Зоны'

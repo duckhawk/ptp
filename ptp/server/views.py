@@ -1,7 +1,9 @@
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
+from django.utils import timezone
+from datetime import timedelta, datetime
 from rest_framework import viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
@@ -45,4 +47,28 @@ class ZoneViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         if not request.user.is_staff:
             raise PermissionDenied('Удалять зоны могут только администраторы и staff.')
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        # Отложенное удаление: помечаем зону и дату удаления
+        delete_after_str = request.query_params.get('delete_after') or (getattr(request, 'data', None) or {}).get('delete_after')
+        if delete_after_str:
+            try:
+                delete_after = datetime.strptime(delete_after_str, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                delete_after = timezone.now().date() + timedelta(days=7)
+        else:
+            delete_after = timezone.now().date() + timedelta(days=7)
+        instance.marked_for_deletion = True
+        instance.delete_after = delete_after
+        instance.save(update_fields=['marked_for_deletion', 'delete_after'])
+        return Response(status=204)
+
+    @action(detail=True, methods=['post'], url_path='cancel-deletion')
+    def cancel_deletion(self, request, pk=None):
+        """Снять пометку «к удалению» с зоны."""
+        if not request.user.is_staff:
+            raise PermissionDenied('Только администраторы и staff.')
+        instance = self.get_object()
+        instance.marked_for_deletion = False
+        instance.delete_after = None
+        instance.save(update_fields=['marked_for_deletion', 'delete_after'])
+        return Response(status=204)

@@ -56,23 +56,38 @@
               v-for="zone in zones"
               :key="zone.id"
               class="zone-item"
+              :class="{ 'zone-item--marked-for-deletion': zone.marked_for_deletion }"
               title="Перейти к зоне на карте"
               @click="focusMapOnZone(zone)"
             >
               <span class="zone-info">
                 <strong>#{{ zone.id }}</strong> — {{ zone.date || '—' }}, {{ (zone.points || []).length }} точек
+                <span v-if="zone.marked_for_deletion" class="zone-marked-deletion">
+                  К удалению после {{ zone.delete_after || '—' }}
+                </span>
                 <span v-if="zone.notes" class="zone-notes">{{ zone.notes }}</span>
                 <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
               </span>
-              <button
-                v-if="user.is_staff"
-                type="button"
-                class="btn btn-small btn-outline"
-                title="Удалить зону"
-                @click.stop="deleteZone(zone)"
-              >
-                ×
-              </button>
+              <span v-if="user.is_staff" class="zone-actions">
+                <button
+                  v-if="zone.marked_for_deletion"
+                  type="button"
+                  class="btn btn-small btn-outline"
+                  title="Отменить удаление"
+                  @click.stop="cancelDeletion(zone)"
+                >
+                  Отмена
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="btn btn-small btn-outline"
+                  title="Пометить к удалению"
+                  @click.stop="deleteZone(zone)"
+                >
+                  ×
+                </button>
+              </span>
             </li>
           </ul>
           <p v-else class="zones-empty">Зон пока нет.</p>
@@ -135,6 +150,7 @@ import Style from 'ol/style/Style'
 import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
 import Circle from 'ol/style/Circle'
+import Text from 'ol/style/Text'
 import 'ol/ol.css'
 
 const API_ZONES = '/api/zones/'
@@ -169,6 +185,7 @@ export default {
     return {
       map: null,
       zonesVectorSource: null,
+      searchMarkerSource: null,
       user: null,
       pointsText: '',
       zoneDate: new Date().toISOString().slice(0, 10),
@@ -213,11 +230,17 @@ export default {
       const lng = parseFloat(parts[1])
       if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return
       if (!this.map) return
+      const center = fromLonLat([lng, lat])
       this.map.getView().animate({
-        center: fromLonLat([lng, lat]),
+        center,
         zoom: 14,
         duration: 300
       })
+      // Показать маркер искомой точки
+      if (this.searchMarkerSource) {
+        this.searchMarkerSource.clear()
+        this.searchMarkerSource.addFeature(new Feature(new Point(center)))
+      }
     },
     focusMapOnZone(zone) {
       if (!this.map || !zone.points || zone.points.length < 2) return
@@ -234,10 +257,40 @@ export default {
       const osmLayer = new TileLayer({ source: new OSM() })
       const zonesLayer = new VectorLayer({
         source: this.zonesVectorSource,
-        style: new Style({
-          fill: new Fill({ color: 'rgba(33, 150, 243, 0.2)' }),
-          stroke: new Stroke({ color: '#2196F3', width: 2 })
-        })
+        style: (feature) => {
+          const marked = feature.get('markedForDeletion')
+          const zoneId = feature.get('zoneId')
+          const zoneDate = feature.get('zoneDate')
+          const zoneNotes = feature.get('zoneNotes')
+          const geom = feature.getGeometry()
+          const interior = geom.getType() === 'Polygon' ? geom.getInteriorPoint() : null
+          const labelLines = []
+          if (zoneId != null) labelLines.push(`#${zoneId}`)
+          if (zoneDate) labelLines.push(zoneDate)
+          if (zoneNotes) labelLines.push(zoneNotes.length > 25 ? zoneNotes.slice(0, 24) + '…' : zoneNotes)
+          const labelText = labelLines.join(' · ')
+          const baseFill = marked
+            ? new Fill({ color: 'rgba(244, 67, 54, 0.15)' })
+            : new Fill({ color: 'rgba(33, 150, 243, 0.2)' })
+          const baseStroke = marked
+            ? new Stroke({ color: '#f44336', width: 2, lineDash: [8, 4] })
+            : new Stroke({ color: '#2196F3', width: 2 })
+          const textStyle = interior && labelText
+            ? new Text({
+                text: labelText,
+                fill: new Fill({ color: '#fff' }),
+                stroke: new Stroke({ color: 'rgba(0,0,0,0.7)', width: 2 }),
+                font: 'bold 13px sans-serif',
+                overflow: true,
+                geometry: interior
+              })
+            : null
+          return new Style({
+            fill: baseFill,
+            stroke: baseStroke,
+            text: textStyle || undefined
+          })
+        }
       })
       // Черновик новой зоны — оранжевый цвет, точки и контур
       const draftLayer = new VectorLayer({
@@ -259,9 +312,22 @@ export default {
           })
         }
       })
+      // Маркер точки поиска по координатам — яркая подсветка
+      this.searchMarkerSource = new VectorSource()
+      const searchMarkerLayer = new VectorLayer({
+        source: this.searchMarkerSource,
+        zIndex: 10,
+        style: new Style({
+          image: new Circle({
+            radius: 12,
+            fill: new Fill({ color: 'rgba(76, 175, 80, 0.9)' }),
+            stroke: new Stroke({ color: '#fff', width: 3 })
+          })
+        })
+      })
       this.map = new Map({
         target: this.$refs.mapContainer,
-        layers: [osmLayer, zonesLayer, draftLayer],
+        layers: [osmLayer, zonesLayer, draftLayer, searchMarkerLayer],
         view: new View({
           center: fromLonLat([37.6173, 55.7558]),
           zoom: 10
@@ -301,7 +367,10 @@ export default {
           const coords = zone.points.map(([lat, lng]) => fromLonLat([lng, lat]))
           coords.push(coords[0].slice())
           const feature = new Feature(new Polygon([coords]))
+          feature.set('zoneId', zone.id)
           feature.set('zoneDate', zone.date || '—')
+          feature.set('zoneNotes', zone.notes || '')
+          feature.set('markedForDeletion', !!zone.marked_for_deletion)
           this.zonesVectorSource.addFeature(feature)
         }
       }
@@ -356,7 +425,7 @@ export default {
       }
     },
     async deleteZone(zone) {
-      if (!confirm(`Удалить зону #${zone.id} (${zone.date || '—'})?`)) return
+      if (!confirm(`Пометить зону #${zone.id} (${zone.date || '—'}) к удалению? Она будет удалена через 7 дней.`)) return
       try {
         const headers = {}
         const csrf = getCsrfToken()
@@ -367,14 +436,33 @@ export default {
           credentials: 'same-origin'
         })
         if (r.ok) {
-          this.zones = this.zones.filter(z => z.id !== zone.id)
-          this.drawZones()
+          await this.fetchZones()
         } else {
           const err = await r.json().catch(() => ({}))
-          alert(err.detail || 'Не удалось удалить зону')
+          alert(err.detail || 'Не удалось пометить зону к удалению')
         }
       } catch (e) {
-        alert('Ошибка сети: ' + (e.message || 'не удалось удалить зону'))
+        alert('Ошибка сети: ' + (e.message || 'не удалось пометить зону к удалению'))
+      }
+    },
+    async cancelDeletion(zone) {
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/cancel-deletion/`, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          await this.fetchZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось отменить удаление')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось отменить удаление'))
       }
     },
     exportCsv() {
@@ -572,6 +660,24 @@ export default {
   font-size: 11px;
   color: #888;
   margin-top: 2px;
+}
+
+.zone-marked-deletion {
+  display: block;
+  font-size: 12px;
+  color: #f44336;
+  margin-top: 2px;
+}
+
+.zone-item--marked-for-deletion {
+  border-color: #f44336;
+  background: rgba(244, 67, 54, 0.08);
+}
+
+.zone-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .zones-empty {
