@@ -39,6 +39,8 @@ class Zone(models.Model):
         blank=True,
         verbose_name='Удалить после'
     )
+
+    class Meta:
         ordering = ['-created_at']
         verbose_name = 'Зона'
         verbose_name_plural = 'Зоны'
