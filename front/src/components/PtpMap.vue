@@ -1,5 +1,5 @@
 <template>
-  <div class="ptp-map">
+  <div class="ptp-map" :class="{ 'add-zone-panel-open': addZoneModalOpen }">
     <header class="header">
       <h1 class="title">Закрытая карта ПТП</h1>
       <div class="auth">
@@ -26,7 +26,7 @@
     <div v-else-if="!user.is_authenticated" class="login-prompt">
       <p>Войдите чтобы работать с картой и зонами.</p>
     </div>
-    <div v-else class="layout" :class="{ 'layout-panel-hidden': !panelVisible }">
+    <div v-else class="layout" :class="{ 'layout-panel-hidden': !panelVisible, 'layout-add-zone-open': addZoneModalOpen }">
       <aside class="panel">
         <div class="panel-header">
           <input
@@ -94,29 +94,12 @@
           <p v-else class="zones-empty">Зон пока нет.</p>
         </section>
         <section v-if="user.is_staff" class="section">
-          <h3>Добавить зону (ввод точек построчно)</h3>
-          <p class="hint">Клик по карте добавляет точку в поле ниже. Или вводите вручную: одна точка на строку — широта пробел долгота (например: 55.7558 37.6173).</p>
-          <textarea
-            v-model="pointsText"
-            class="textarea"
-            rows="6"
-            placeholder="55.7558 37.6173&#10;55.7512 37.6185&#10;55.7520 37.6200"
-          />
-          <label class="label">
-            Примечания
-            <textarea v-model="zoneNotes" class="textarea textarea-notes" rows="2" placeholder="Необязательно"></textarea>
-          </label>
-          <label class="label">
-            Дата закладки
-            <input v-model="zoneDate" type="date" class="input">
-          </label>
           <button
             type="button"
             class="btn btn-primary btn-block"
-            :disabled="!canSaveZone"
-            @click="saveZone"
+            @click="openAddZoneModal"
           >
-            Сохранить зону
+            Добавить зону
           </button>
         </section>
         <button
@@ -177,6 +160,50 @@
               type="button"
               class="btn btn-outline btn-block"
               @click="closeDeleteModal"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Панель добавления зоны (слева, карта остаётся видимой и кликабельной) -->
+    <Teleport to="body">
+      <div
+        v-if="addZoneModalOpen"
+        class="add-zone-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-zone-modal-title"
+      >
+        <div class="add-zone-panel-inner">
+          <h3 id="add-zone-modal-title" class="modal-title">Добавить зону</h3>
+          <p class="modal-desc hint">Клик по карте добавляет точку в список ниже. Или вводите вручную: одна точка на строку — широта пробел долгота (например: 55.7558 37.6173). Минимум 2 точки.</p>
+          <label class="label">Точки полигона (широта долгота на строку)</label>
+          <textarea
+            v-model="pointsText"
+            class="textarea"
+            rows="6"
+            placeholder="55.7558 37.6173&#10;55.7512 37.6185&#10;55.7520 37.6200"
+          />
+          <label class="label">Примечания</label>
+          <textarea v-model="zoneNotes" class="textarea textarea-notes" rows="2" placeholder="Необязательно" />
+          <label class="label">Дата закладки</label>
+          <input v-model="zoneDate" type="date" class="input">
+          <div class="modal-actions modal-actions--vertical">
+            <button
+              type="button"
+              class="btn btn-primary btn-block"
+              :disabled="!canSaveZone"
+              @click="saveZoneAndCloseModal"
+            >
+              Сохранить зону
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-block"
+              @click="closeAddZoneModal"
             >
               Отмена
             </button>
@@ -246,7 +273,8 @@ export default {
       panelVisible: true,
       coordSearchText: '',
       deleteModalZoneId: null,
-      deleteModalDate: ''
+      deleteModalDate: '',
+      addZoneModalOpen: false
     }
   },
   computed: {
@@ -396,6 +424,7 @@ export default {
       this.drawDraft()
     },
     onMapClick(evt) {
+      if (!this.addZoneModalOpen) return
       const lonLat = toLonLat(evt.coordinate)
       const lat = lonLat[1]
       const lng = lonLat[0]
@@ -405,6 +434,7 @@ export default {
     drawDraft() {
       if (!this.draftVectorSource) return
       this.draftVectorSource.clear()
+      if (!this.addZoneModalOpen) return
       const points = parsePoints(this.pointsText)
       for (const [lat, lng] of points) {
         this.draftVectorSource.addFeature(
@@ -456,7 +486,7 @@ export default {
     },
     async saveZone() {
       const points = parsePoints(this.pointsText)
-      if (points.length < 2 || !this.zoneDate) return
+      if (points.length < 2 || !this.zoneDate) return false
       try {
         const headers = { 'Content-Type': 'application/json' }
         const csrf = getCsrfToken()
@@ -474,13 +504,36 @@ export default {
           this.zoneNotes = ''
           this.zoneDate = new Date().toISOString().slice(0, 10)
           this.drawZones()
+          return true
         } else {
           const err = await r.json().catch(() => ({}))
           alert(err.detail || err.points || 'Ошибка сохранения зоны')
+          return false
         }
       } catch (e) {
         alert('Ошибка сети: ' + (e.message || 'не удалось сохранить зону'))
+        return false
       }
+    },
+    openAddZoneModal() {
+      this.zoneDate = new Date().toISOString().slice(0, 10)
+      this.pointsText = ''
+      this.zoneNotes = ''
+      this.addZoneModalOpen = true
+    },
+    closeAddZoneModal() {
+      if (this._addZoneModalEsc) {
+        document.removeEventListener('keydown', this._addZoneModalEsc)
+        this._addZoneModalEsc = null
+      }
+      this.addZoneModalOpen = false
+      this.pointsText = ''
+      this.zoneNotes = ''
+      this.zoneDate = new Date().toISOString().slice(0, 10)
+    },
+    async saveZoneAndCloseModal() {
+      const ok = await this.saveZone()
+      if (ok) this.closeAddZoneModal()
     },
     openDeleteModal(zone) {
       const d = new Date()
@@ -655,6 +708,22 @@ export default {
         document.removeEventListener('keydown', this._deleteModalEsc)
         this._deleteModalEsc = null
       }
+    },
+    addZoneModalOpen(open) {
+      if (open) {
+        const onEsc = (e) => {
+          if (e.key === 'Escape') {
+            this.closeAddZoneModal()
+            document.removeEventListener('keydown', onEsc)
+          }
+        }
+        document.addEventListener('keydown', onEsc)
+        this._addZoneModalEsc = onEsc
+      } else if (this._addZoneModalEsc) {
+        document.removeEventListener('keydown', this._addZoneModalEsc)
+        this._addZoneModalEsc = null
+      }
+      this.drawDraft()
     }
   }
 }
@@ -1093,6 +1162,64 @@ export default {
 .modal-deferred-row .input {
   flex: 1;
   min-width: 0;
+  margin-top: 0;
+}
+
+.modal-box--add-zone {
+  max-width: 420px;
+}
+
+.modal-box--add-zone .modal-desc.hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.modal-actions--vertical {
+  margin-top: 8px;
+}
+
+/* Панель добавления зоны слева — карта остаётся видимой и кликабельной */
+.ptp-map.add-zone-panel-open .header {
+  margin-left: 400px;
+}
+
+.ptp-map.add-zone-panel-open .layout {
+  margin-left: 400px;
+}
+
+.add-zone-panel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 400px;
+  background: #252525;
+  border-right: 1px solid #444;
+  z-index: 9999;
+  overflow-y: auto;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+}
+
+.add-zone-panel-inner {
+  padding: 24px;
+}
+
+.add-zone-panel-inner .modal-title {
+  margin-top: 0;
+}
+
+.add-zone-panel-inner .modal-desc.hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.add-zone-panel-inner .label {
+  margin-top: 12px;
+}
+
+.add-zone-panel-inner .label:first-of-type {
   margin-top: 0;
 }
 </style>

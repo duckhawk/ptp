@@ -162,6 +162,8 @@ OIDC_USERNAME_ALGO = 'server.oidc.generate_username'
 OIDC_CALLBACK_CLASS = 'mozilla_django_oidc.views.OIDCAuthenticationCallbackView'
 OIDC_STORE_ACCESS_TOKEN = True
 OIDC_STORE_ID_TOKEN = True
+# При каждом логине принудительно сбрасывать сессию в IdP и показывать форму входа заново
+OIDC_AUTH_REQUEST_EXTRA_PARAMS = {'prompt': 'login'}
 
 import re
 OIDC_EXEMPT_URLS = [re.compile(r'^/api/')]
