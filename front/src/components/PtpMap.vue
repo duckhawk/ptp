@@ -79,50 +79,15 @@
                     Отмена
                   </button>
                 </template>
-                <template v-else>
-                  <button
-                    type="button"
-                    class="btn btn-small btn-outline btn-danger"
-                    title="Удалить зону сразу"
-                    @click.stop="deleteImmediately(zone)"
-                  >
-                    Сейчас
-                  </button>
-                  <template v-if="deferredDeleteZoneId === zone.id">
-                    <span class="deferred-delete-inline">
-                      <input
-                        v-model="deferredDeleteDate"
-                        type="date"
-                        class="input input-date-small"
-                        title="Дата удаления"
-                      >
-                      <button
-                        type="button"
-                        class="btn btn-small btn-primary"
-                        title="Пометить к удалению"
-                        @click.stop="markForDeletion(zone)"
-                      >
-                        Пометить
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-small btn-outline"
-                        @click.stop="deferredDeleteZoneId = null"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  </template>
-                  <button
-                    v-else
-                    type="button"
-                    class="btn btn-small btn-outline"
-                    title="Удалить после указанной даты"
-                    @click.stop="openDeferredDelete(zone)"
-                  >
-                    После
-                  </button>
-                </template>
+                <button
+                  v-else
+                  type="button"
+                  class="btn btn-small btn-outline btn-danger"
+                  title="Удалить зону"
+                  @click.stop="openDeleteModal(zone)"
+                >
+                  ×
+                </button>
               </span>
             </li>
           </ul>
@@ -168,6 +133,57 @@
         <div ref="mapContainer" class="map-container-inner"></div>
       </div>
     </div>
+
+    <!-- Модальное окно удаления зоны -->
+    <Teleport to="body">
+      <div
+        v-if="deleteModalZone"
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-modal-title"
+        @click.self="closeDeleteModal"
+      >
+        <div class="modal-box">
+          <h3 id="delete-modal-title" class="modal-title">Удалить зону #{{ deleteModalZone.id }}?</h3>
+          <p class="modal-desc">Дата закладки: {{ deleteModalZone.date || '—' }}</p>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn btn-danger btn-block"
+              @click="confirmDeleteImmediately"
+            >
+              Удалить сразу
+            </button>
+            <div class="modal-deferred">
+              <label class="label">Удалить после даты</label>
+              <div class="modal-deferred-row">
+                <input
+                  v-model="deleteModalDate"
+                  type="date"
+                  class="input"
+                  title="Дата удаления"
+                >
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  @click="confirmMarkForDeletion"
+                >
+                  Пометить к удалению
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline btn-block"
+              @click="closeDeleteModal"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -229,8 +245,8 @@ export default {
       zones: [],
       panelVisible: true,
       coordSearchText: '',
-      deferredDeleteZoneId: null,
-      deferredDeleteDate: ''
+      deleteModalZoneId: null,
+      deleteModalDate: ''
     }
   },
   computed: {
@@ -241,6 +257,10 @@ export default {
     canSaveZone() {
       const points = parsePoints(this.pointsText)
       return points.length >= 2 && this.zoneDate
+    },
+    deleteModalZone() {
+      if (!this.deleteModalZoneId) return null
+      return this.zones.find(z => z.id === this.deleteModalZoneId) || null
     }
   },
   mounted() {
@@ -462,11 +482,69 @@ export default {
         alert('Ошибка сети: ' + (e.message || 'не удалось сохранить зону'))
       }
     },
-    openDeferredDelete(zone) {
+    openDeleteModal(zone) {
       const d = new Date()
       d.setDate(d.getDate() + 7)
-      this.deferredDeleteDate = d.toISOString().slice(0, 10)
-      this.deferredDeleteZoneId = zone.id
+      this.deleteModalDate = d.toISOString().slice(0, 10)
+      this.deleteModalZoneId = zone.id
+    },
+    closeDeleteModal() {
+      if (this._deleteModalEsc) {
+        document.removeEventListener('keydown', this._deleteModalEsc)
+        this._deleteModalEsc = null
+      }
+      this.deleteModalZoneId = null
+    },
+    async confirmDeleteImmediately() {
+      const zone = this.deleteModalZone
+      if (!zone) return
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/delete-immediately/`, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          this.closeDeleteModal()
+          this.zones = this.zones.filter(z => z.id !== zone.id)
+          this.drawZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось удалить зону')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось удалить зону'))
+      }
+    },
+    async confirmMarkForDeletion() {
+      const zone = this.deleteModalZone
+      if (!zone || !this.deleteModalDate) {
+        alert('Укажите дату удаления')
+        return
+      }
+      try {
+        const headers = { 'Content-Type': 'application/json' }
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/`, {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ delete_after: this.deleteModalDate }),
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          this.closeDeleteModal()
+          await this.fetchZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось пометить зону к удалению')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось пометить зону к удалению'))
+      }
     },
     async markForDeletion(zone) {
       if (!this.deferredDeleteDate) {
@@ -562,6 +640,21 @@ export default {
     },
     panelVisible() {
       this.$nextTick(() => this.map?.updateSize())
+    },
+    deleteModalZoneId(id) {
+      if (id) {
+        const onEsc = (e) => {
+          if (e.key === 'Escape') {
+            this.closeDeleteModal()
+            document.removeEventListener('keydown', onEsc)
+          }
+        }
+        document.addEventListener('keydown', onEsc)
+        this._deleteModalEsc = onEsc
+      } else if (this._deleteModalEsc) {
+        document.removeEventListener('keydown', this._deleteModalEsc)
+        this._deleteModalEsc = null
+      }
     }
   }
 }
@@ -682,19 +775,6 @@ export default {
 
 .btn-danger:hover {
   background: rgba(244, 67, 54, 0.15);
-}
-
-.deferred-delete-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.deferred-delete-inline .input-date-small {
-  width: 120px;
-  padding: 2px 6px;
-  font-size: 12px;
 }
 
 .zones-list {
@@ -950,5 +1030,69 @@ export default {
   justify-content: center;
   color: #888;
   font-size: 16px;
+}
+
+/* Модальное окно удаления зоны (Teleport to body) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+}
+
+.modal-box {
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  color: #e0e0e0;
+}
+
+.modal-desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-actions .btn-block {
+  margin-top: 0;
+}
+
+.modal-deferred {
+  margin: 4px 0;
+}
+
+.modal-deferred .label {
+  margin-bottom: 6px;
+}
+
+.modal-deferred-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.modal-deferred-row .input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
 }
 </style>
