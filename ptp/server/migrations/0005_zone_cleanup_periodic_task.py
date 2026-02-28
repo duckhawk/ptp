@@ -9,7 +9,7 @@ def create_cleanup_periodic_task(apps, schema_editor):
     # Расписание: раз в 1 день
     schedule, _ = IntervalSchedule.objects.get_or_create(
         every=1,
-        period=IntervalSchedule.DAYS,
+        period='days',
     )
     PeriodicTask.objects.get_or_create(
         name='Зачистка зон, помеченных к удалению',
