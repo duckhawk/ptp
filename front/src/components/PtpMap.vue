@@ -69,24 +69,60 @@
                 <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
               </span>
               <span v-if="user.is_staff" class="zone-actions">
-                <button
-                  v-if="zone.marked_for_deletion"
-                  type="button"
-                  class="btn btn-small btn-outline"
-                  title="Отменить удаление"
-                  @click.stop="cancelDeletion(zone)"
-                >
-                  Отмена
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="btn btn-small btn-outline"
-                  title="Пометить к удалению"
-                  @click.stop="deleteZone(zone)"
-                >
-                  ×
-                </button>
+                <template v-if="zone.marked_for_deletion">
+                  <button
+                    type="button"
+                    class="btn btn-small btn-outline"
+                    title="Отменить удаление"
+                    @click.stop="cancelDeletion(zone)"
+                  >
+                    Отмена
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="btn btn-small btn-outline btn-danger"
+                    title="Удалить зону сразу"
+                    @click.stop="deleteImmediately(zone)"
+                  >
+                    Сейчас
+                  </button>
+                  <template v-if="deferredDeleteZoneId === zone.id">
+                    <span class="deferred-delete-inline">
+                      <input
+                        v-model="deferredDeleteDate"
+                        type="date"
+                        class="input input-date-small"
+                        title="Дата удаления"
+                      >
+                      <button
+                        type="button"
+                        class="btn btn-small btn-primary"
+                        title="Пометить к удалению"
+                        @click.stop="markForDeletion(zone)"
+                      >
+                        Пометить
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-small btn-outline"
+                        @click.stop="deferredDeleteZoneId = null"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </template>
+                  <button
+                    v-else
+                    type="button"
+                    class="btn btn-small btn-outline"
+                    title="Удалить после указанной даты"
+                    @click.stop="openDeferredDelete(zone)"
+                  >
+                    После
+                  </button>
+                </template>
               </span>
             </li>
           </ul>
@@ -192,7 +228,9 @@ export default {
       zoneNotes: '',
       zones: [],
       panelVisible: true,
-      coordSearchText: ''
+      coordSearchText: '',
+      deferredDeleteZoneId: null,
+      deferredDeleteDate: ''
     }
   },
   computed: {
@@ -424,18 +462,29 @@ export default {
         alert('Ошибка сети: ' + (e.message || 'не удалось сохранить зону'))
       }
     },
-    async deleteZone(zone) {
-      if (!confirm(`Пометить зону #${zone.id} (${zone.date || '—'}) к удалению? Она будет удалена через 7 дней.`)) return
+    openDeferredDelete(zone) {
+      const d = new Date()
+      d.setDate(d.getDate() + 7)
+      this.deferredDeleteDate = d.toISOString().slice(0, 10)
+      this.deferredDeleteZoneId = zone.id
+    },
+    async markForDeletion(zone) {
+      if (!this.deferredDeleteDate) {
+        alert('Укажите дату удаления')
+        return
+      }
       try {
-        const headers = {}
+        const headers = { 'Content-Type': 'application/json' }
         const csrf = getCsrfToken()
         if (csrf) headers['X-CSRFToken'] = csrf
         const r = await fetch(`${API_ZONES}${zone.id}/`, {
           method: 'DELETE',
           headers,
+          body: JSON.stringify({ delete_after: this.deferredDeleteDate }),
           credentials: 'same-origin'
         })
         if (r.ok) {
+          this.deferredDeleteZoneId = null
           await this.fetchZones()
         } else {
           const err = await r.json().catch(() => ({}))
@@ -443,6 +492,28 @@ export default {
         }
       } catch (e) {
         alert('Ошибка сети: ' + (e.message || 'не удалось пометить зону к удалению'))
+      }
+    },
+    async deleteImmediately(zone) {
+      if (!confirm(`Удалить зону #${zone.id} (${zone.date || '—'}) сразу? Это действие нельзя отменить.`)) return
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/delete-immediately/`, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          this.zones = this.zones.filter(z => z.id !== zone.id)
+          this.drawZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось удалить зону')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось удалить зону'))
       }
     },
     async cancelDeletion(zone) {
@@ -602,6 +673,28 @@ export default {
   font-size: 18px;
   line-height: 1.2;
   min-width: 28px;
+}
+
+.btn-danger {
+  color: #f44336;
+  border-color: #f44336;
+}
+
+.btn-danger:hover {
+  background: rgba(244, 67, 54, 0.15);
+}
+
+.deferred-delete-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.deferred-delete-inline .input-date-small {
+  width: 120px;
+  padding: 2px 6px;
+  font-size: 12px;
 }
 
 .zones-list {

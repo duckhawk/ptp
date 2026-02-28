@@ -62,6 +62,15 @@ class ZoneViewSet(viewsets.ModelViewSet):
         instance.save(update_fields=['marked_for_deletion', 'delete_after'])
         return Response(status=204)
 
+    @action(detail=True, methods=['post'], url_path='delete-immediately')
+    def delete_immediately(self, request, pk=None):
+        """Удалить зону сразу (без отложенного удаления)."""
+        if not request.user.is_staff:
+            raise PermissionDenied('Удалять зоны могут только администраторы и staff.')
+        instance = self.get_object()
+        instance.delete()
+        return Response(status=204)
+
     @action(detail=True, methods=['post'], url_path='cancel-deletion')
     def cancel_deletion(self, request, pk=None):
         """Снять пометку «к удалению» с зоны."""
