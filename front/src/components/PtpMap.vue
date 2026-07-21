@@ -23,9 +23,6 @@
     <div v-if="user === null" class="login-prompt">
       <p>Проверка авторизации…</p>
     </div>
-    <div v-else-if="!user.is_authenticated" class="login-prompt">
-      <p>Войдите чтобы работать с картой и зонами.</p>
-    </div>
     <div v-else class="layout" :class="{ 'layout-panel-hidden': !panelVisible, 'layout-add-zone-open': addZoneModalOpen }">
       <aside class="panel">
         <div class="panel-header">
@@ -56,12 +53,18 @@
               v-for="zone in zones"
               :key="zone.id"
               class="zone-item"
-              :class="{ 'zone-item--marked-for-deletion': zone.marked_for_deletion }"
+              :class="{
+                'zone-item--marked-for-deletion': zone.marked_for_deletion,
+                'zone-item--pss': zone.zone_type === 'pss',
+                'zone-item--pending': zone.status === 'pending'
+              }"
               title="Перейти к зоне на карте"
               @click="focusMapOnZone(zone)"
             >
               <span class="zone-info">
                 <strong>#{{ zone.id }}</strong> — {{ zone.date || '—' }}, {{ (zone.points || []).length }} точек
+                <span v-if="zone.zone_type === 'pss'" class="zone-badge zone-badge--pss">ПСС — закладки запрещены</span>
+                <span v-if="zone.status === 'pending'" class="zone-badge zone-badge--pending">На модерации</span>
                 <span v-if="zone.marked_for_deletion" class="zone-marked-deletion">
                   К удалению после {{ zone.delete_after || '—' }}
                 </span>
@@ -69,7 +72,25 @@
                 <span class="zone-creator">Создатель: {{ zone.creator_display_name || (zone.creator_id ? '#' + zone.creator_id : '—') }}</span>
               </span>
               <span v-if="user.is_staff" class="zone-actions">
-                <template v-if="zone.marked_for_deletion">
+                <template v-if="zone.status === 'pending'">
+                  <button
+                    type="button"
+                    class="btn btn-small btn-outline"
+                    title="Одобрить зону"
+                    @click.stop="approveZone(zone)"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-small btn-outline btn-danger"
+                    title="Отклонить зону"
+                    @click.stop="rejectZone(zone)"
+                  >
+                    ×
+                  </button>
+                </template>
+                <template v-else-if="zone.marked_for_deletion">
                   <button
                     type="button"
                     class="btn btn-small btn-outline"
@@ -93,14 +114,30 @@
           </ul>
           <p v-else class="zones-empty">Зон пока нет.</p>
         </section>
-        <section v-if="user.is_staff" class="section">
+        <section class="section">
           <button
+            v-if="user.is_staff"
             type="button"
             class="btn btn-primary btn-block"
             @click="openAddZoneModal"
           >
             Добавить зону
           </button>
+          <button
+            v-else-if="user.is_authenticated"
+            type="button"
+            class="btn btn-primary btn-block"
+            @click="openAddZoneModal"
+          >
+            Предложить зону
+          </button>
+          <a
+            v-else
+            href="/oidc/authenticate/"
+            class="btn btn-primary btn-block"
+          >
+            Войдите, чтобы предложить зону
+          </a>
         </section>
         <button
           type="button"
@@ -178,8 +215,14 @@
         aria-labelledby="add-zone-modal-title"
       >
         <div class="add-zone-panel-inner">
-          <h3 id="add-zone-modal-title" class="modal-title">Добавить зону</h3>
+          <h3 id="add-zone-modal-title" class="modal-title">{{ isSuggestion ? 'Предложить зону' : 'Добавить зону' }}</h3>
+          <p v-if="isSuggestion" class="modal-desc hint hint--moderation">Зона будет отправлена на модерацию администраторам. После одобрения она появится на карте для всех.</p>
           <p class="modal-desc hint">Клик по карте добавляет точку в список ниже. Или вводите вручную: одна точка на строку — широта пробел долгота (например: 55.7558 37.6173). Минимум 2 точки.</p>
+          <label class="label">Тип зоны</label>
+          <select v-model="zoneType" class="input select-zone-type">
+            <option value="regular">Обычная</option>
+            <option value="pss">ПСС — закладки запрещены</option>
+          </select>
           <label class="label">Точки полигона (широта долгота на строку)</label>
           <textarea
             v-model="pointsText"
@@ -198,7 +241,7 @@
               :disabled="!canSaveZone"
               @click="saveZoneAndCloseModal"
             >
-              Сохранить зону
+              {{ isSuggestion ? 'Отправить на модерацию' : 'Сохранить зону' }}
             </button>
             <button
               type="button"
@@ -269,6 +312,7 @@ export default {
       pointsText: '',
       zoneDate: new Date().toISOString().slice(0, 10),
       zoneNotes: '',
+      zoneType: 'regular',
       zones: [],
       panelVisible: true,
       coordSearchText: '',
@@ -286,6 +330,10 @@ export default {
       const points = parsePoints(this.pointsText)
       return points.length >= 2 && this.zoneDate
     },
+    isSuggestion() {
+      // Авторизованный не-администратор предлагает зону на модерацию.
+      return !!(this.user && this.user.is_authenticated && !this.user.is_staff)
+    },
     deleteModalZone() {
       if (!this.deleteModalZoneId) return null
       return this.zones.find(z => z.id === this.deleteModalZoneId) || null
@@ -293,12 +341,11 @@ export default {
   },
   mounted() {
     // OIDC: получаем текущего пользователя из сессии Django (после /oidc/callback/)
+    // Просмотр карты и зон доступен всем; авторизация нужна только для действий.
     this.fetchUser().then(() => {
-      if (this.user && this.user.is_authenticated) {
-        this.fetchZones()
-        // Карта рендерится только при user.is_authenticated — инициализируем после появления контейнера в DOM
-        this.$nextTick(() => this.initMap())
-      }
+      this.fetchZones()
+      // Карта рендерится после загрузки пользователя — инициализируем после появления контейнера в DOM
+      this.$nextTick(() => this.initMap())
     })
   },
   beforeUnmount() {
@@ -348,19 +395,35 @@ export default {
           const zoneId = feature.get('zoneId')
           const zoneDate = feature.get('zoneDate')
           const zoneNotes = feature.get('zoneNotes')
+          const zoneType = feature.get('zoneType')
+          const zoneStatus = feature.get('zoneStatus')
+          const isPss = zoneType === 'pss'
+          const isPending = zoneStatus === 'pending'
           const geom = feature.getGeometry()
           const interior = geom.getType() === 'Polygon' ? geom.getInteriorPoint() : null
           const labelLines = []
           if (zoneId != null) labelLines.push(`#${zoneId}`)
+          if (isPss) labelLines.push('ПСС')
           if (zoneDate) labelLines.push(zoneDate)
+          if (isPending) labelLines.push('на модерации')
           if (zoneNotes) labelLines.push(zoneNotes.length > 25 ? zoneNotes.slice(0, 24) + '…' : zoneNotes)
           const labelText = labelLines.join(' · ')
-          const baseFill = marked
-            ? new Fill({ color: 'rgba(244, 67, 54, 0.15)' })
-            : new Fill({ color: 'rgba(33, 150, 243, 0.2)' })
-          const baseStroke = marked
-            ? new Stroke({ color: '#f44336', width: 2, lineDash: [8, 4] })
-            : new Stroke({ color: '#2196F3', width: 2 })
+          // Базовый цвет по типу зоны: ПСС — фиолетовый, обычная — синий.
+          const typeStrokeColor = isPss ? '#9c27b0' : '#2196F3'
+          const typeFillColor = isPss ? 'rgba(156, 39, 176, 0.25)' : 'rgba(33, 150, 243, 0.2)'
+          let baseFill
+          let baseStroke
+          if (marked) {
+            baseFill = new Fill({ color: 'rgba(244, 67, 54, 0.15)' })
+            baseStroke = new Stroke({ color: '#f44336', width: 2, lineDash: [8, 4] })
+          } else if (isPending) {
+            // Зона на модерации — пунктир цвета типа.
+            baseFill = new Fill({ color: typeFillColor })
+            baseStroke = new Stroke({ color: typeStrokeColor, width: 2, lineDash: [6, 4] })
+          } else {
+            baseFill = new Fill({ color: typeFillColor })
+            baseStroke = new Stroke({ color: typeStrokeColor, width: 2 })
+          }
           const textStyle = interior && labelText
             ? new Text({
                 text: labelText,
@@ -458,6 +521,8 @@ export default {
           feature.set('zoneId', zone.id)
           feature.set('zoneDate', zone.date || '—')
           feature.set('zoneNotes', zone.notes || '')
+          feature.set('zoneType', zone.zone_type || 'regular')
+          feature.set('zoneStatus', zone.status || 'approved')
           feature.set('markedForDeletion', !!zone.marked_for_deletion)
           this.zonesVectorSource.addFeature(feature)
         }
@@ -487,6 +552,7 @@ export default {
     async saveZone() {
       const points = parsePoints(this.pointsText)
       if (points.length < 2 || !this.zoneDate) return false
+      const wasSuggestion = this.isSuggestion
       try {
         const headers = { 'Content-Type': 'application/json' }
         const csrf = getCsrfToken()
@@ -494,7 +560,12 @@ export default {
         const r = await fetch(API_ZONES, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ points, date: this.zoneDate || null, notes: (this.zoneNotes || '').trim() || null }),
+          body: JSON.stringify({
+            points,
+            date: this.zoneDate || null,
+            notes: (this.zoneNotes || '').trim() || null,
+            zone_type: this.zoneType || 'regular'
+          }),
           credentials: 'same-origin'
         })
         if (r.ok) {
@@ -502,8 +573,12 @@ export default {
           this.zones.push(zone)
           this.pointsText = ''
           this.zoneNotes = ''
+          this.zoneType = 'regular'
           this.zoneDate = new Date().toISOString().slice(0, 10)
           this.drawZones()
+          if (wasSuggestion) {
+            alert('Зона отправлена на модерацию. После одобрения администратором она появится на карте.')
+          }
           return true
         } else {
           const err = await r.json().catch(() => ({}))
@@ -519,6 +594,7 @@ export default {
       this.zoneDate = new Date().toISOString().slice(0, 10)
       this.pointsText = ''
       this.zoneNotes = ''
+      this.zoneType = 'regular'
       this.addZoneModalOpen = true
     },
     closeAddZoneModal() {
@@ -529,6 +605,7 @@ export default {
       this.addZoneModalOpen = false
       this.pointsText = ''
       this.zoneNotes = ''
+      this.zoneType = 'regular'
       this.zoneDate = new Date().toISOString().slice(0, 10)
     },
     async saveZoneAndCloseModal() {
@@ -667,13 +744,55 @@ export default {
         alert('Ошибка сети: ' + (e.message || 'не удалось отменить удаление'))
       }
     },
+    async approveZone(zone) {
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/approve/`, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          await this.fetchZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось одобрить зону')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось одобрить зону'))
+      }
+    },
+    async rejectZone(zone) {
+      if (!confirm(`Отклонить зону #${zone.id}? Она будет удалена.`)) return
+      try {
+        const headers = {}
+        const csrf = getCsrfToken()
+        if (csrf) headers['X-CSRFToken'] = csrf
+        const r = await fetch(`${API_ZONES}${zone.id}/reject/`, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin'
+        })
+        if (r.ok) {
+          this.zones = this.zones.filter(z => z.id !== zone.id)
+          this.drawZones()
+        } else {
+          const err = await r.json().catch(() => ({}))
+          alert(err.detail || 'Не удалось отклонить зону')
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + (e.message || 'не удалось отклонить зону'))
+      }
+    },
     exportCsv() {
       if (this.zones.length === 0) return
-      const rows = ['id;date;notes;points']
+      const rows = ['id;date;type;status;notes;points']
       for (const z of this.zones) {
         const pts = (z.points || []).map(p => `${p[0]},${p[1]}`).join(' ')
         const notes = (z.notes || '').replace(/"/g, '""')
-        rows.push(`${z.id};${z.date || ''};"${notes}";"${pts}"`)
+        rows.push(`${z.id};${z.date || ''};${z.zone_type || 'regular'};${z.status || 'approved'};"${notes}";"${pts}"`)
       }
       const csv = '\uFEFF' + rows.join('\n')
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -914,6 +1033,62 @@ export default {
 .zone-item--marked-for-deletion {
   border-color: #f44336;
   background: rgba(244, 67, 54, 0.08);
+}
+
+.zone-item--pss {
+  border-color: #9c27b0;
+  background: rgba(156, 39, 176, 0.1);
+}
+
+.zone-item--pss:hover {
+  background: rgba(156, 39, 176, 0.16);
+  border-color: #ba68c8;
+}
+
+.zone-item--pending {
+  border-left: 3px solid #ffb300;
+}
+
+.zone-badge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.zone-badge--pss {
+  color: #e1bee7;
+  background: rgba(156, 39, 176, 0.25);
+  border: 1px solid rgba(156, 39, 176, 0.6);
+}
+
+.zone-badge--pending {
+  color: #ffe082;
+  background: rgba(255, 179, 0, 0.18);
+  border: 1px solid rgba(255, 179, 0, 0.6);
+  margin-left: 4px;
+}
+
+.select-zone-type {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #333;
+  color: #fff;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.hint--moderation {
+  color: #ffe082;
+  background: rgba(255, 179, 0, 0.12);
+  border: 1px solid rgba(255, 179, 0, 0.35);
+  border-radius: 4px;
+  padding: 8px 10px;
 }
 
 .zone-actions {

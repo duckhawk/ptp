@@ -9,12 +9,12 @@ class ZoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Zone
         fields = [
-            'id', 'points', 'date', 'notes', 'created_at',
+            'id', 'points', 'date', 'notes', 'zone_type', 'status', 'created_at',
             'creator_id', 'creator_display_name',
             'marked_for_deletion', 'delete_after',
         ]
         read_only_fields = [
-            'id', 'created_at', 'creator_id', 'creator_display_name',
+            'id', 'status', 'created_at', 'creator_id', 'creator_display_name',
             'marked_for_deletion', 'delete_after',
         ]
 
