@@ -6,6 +6,21 @@ class Zone(models.Model):
     """
     Зона на карте — полигон из списка точек [широта, долгота].
     """
+
+    ZONE_TYPE_REGULAR = 'regular'
+    ZONE_TYPE_PSS = 'pss'
+    ZONE_TYPE_CHOICES = [
+        (ZONE_TYPE_REGULAR, 'Обычная'),
+        (ZONE_TYPE_PSS, 'ПСС (закладки запрещены)'),
+    ]
+
+    STATUS_APPROVED = 'approved'
+    STATUS_PENDING = 'pending'
+    STATUS_CHOICES = [
+        (STATUS_APPROVED, 'Одобрена'),
+        (STATUS_PENDING, 'На модерации'),
+    ]
+
     points = models.JSONField(
         help_text='Список точек [[lat, lng], ...], минимум 2 точки'
     )
@@ -18,6 +33,18 @@ class Zone(models.Model):
         blank=True,
         default='',
         verbose_name='Примечания'
+    )
+    zone_type = models.CharField(
+        max_length=16,
+        choices=ZONE_TYPE_CHOICES,
+        default=ZONE_TYPE_REGULAR,
+        verbose_name='Тип зоны'
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_APPROVED,
+        verbose_name='Статус модерации'
     )
     creator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
